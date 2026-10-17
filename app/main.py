@@ -119,6 +119,17 @@ def looks():
     return {"looks": db.list_spins(20)}
 
 
+@app.get("/taste")
+def taste():
+    """Learned taste profile: per family+texture likes/dislikes + Style IQ."""
+    likes, dislikes, pct = db.style_iq()
+    rows = [
+        {"family": fam, "texture": tex, "likes": lk, "dislikes": dk}
+        for (fam, tex), (lk, dk) in db.get_taste_weights().items()
+    ]
+    return {"taste": rows, "likes": likes, "dislikes": dislikes, "style_iq": pct}
+
+
 @app.post("/cart")
 def add_to_cart(body: CartIn):
     spin = db.get_spin(body.look_id)

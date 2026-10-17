@@ -6,6 +6,7 @@ LIKE / DISLIKE -> taste profile learns -> Shop This Look (mock cart).
 Run: streamlit run app/streamlit_app.py
 Demo: append ?demo=1 for an instant illustrated demo portrait.
 """
+import base64
 import io
 import os
 import random
@@ -21,7 +22,8 @@ for _k in ("no_proxy", "NO_PROXY"):
 
 import httpx
 import streamlit as st
-from PIL import Image, ImageDraw
+import streamlit.components.v1 as components
+from PIL import Image, ImageDraw, ImageFont
 
 BACKEND = os.environ.get("LOOKROULETTE_BACKEND", "http://127.0.0.1:8000")
 
@@ -135,6 +137,147 @@ def slot_animation():
     ph.empty()
 
 
+def slider_html(before_b64: str, after_b64: str) -> str:
+    """Draggable before/after comparison slider, Casino Noir styled."""
+    return (
+        '<div style="position:relative;border-radius:16px;overflow:hidden;'
+        'border:1px solid rgba(212,175,55,.4);box-shadow:0 10px 34px rgba(0,0,0,.55);">'
+        f'<img src="data:image/png;base64,{after_b64}" style="display:block;width:100%;" />'
+        '<div id="baTop" style="position:absolute;inset:0;clip-path:inset(0 50% 0 0);">'
+        f'<img src="data:image/png;base64,{before_b64}" style="display:block;width:100%;" />'
+        "</div>"
+        '<div style="position:absolute;top:10px;left:10px;background:rgba(0,0,0,.62);color:#ffd76a;'
+        'font-size:11px;font-weight:800;letter-spacing:.18em;padding:5px 12px;border-radius:999px;'
+        'border:1px solid rgba(212,175,55,.5);">BEFORE</div>'
+        '<div style="position:absolute;top:10px;right:10px;background:rgba(0,0,0,.62);color:#ffd76a;'
+        'font-size:11px;font-weight:800;letter-spacing:.18em;padding:5px 12px;border-radius:999px;'
+        'border:1px solid rgba(212,175,55,.5);">AFTER</div>'
+        '<div id="baHandle" style="position:absolute;top:0;bottom:0;left:50%;width:3px;'
+        'background:linear-gradient(180deg,#ffe08a,#d4af37);box-shadow:0 0 14px rgba(212,175,55,.8);">'
+        '<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);'
+        "width:48px;height:48px;border-radius:50%;background:linear-gradient(180deg,#ffe08a,#f0b429);"
+        "color:#3a2400;display:flex;align-items:center;justify-content:center;font-weight:800;"
+        'border:2px solid #fff3cf;box-shadow:0 4px 16px rgba(0,0,0,.5);font-size:18px;">&#10231;</div></div>'
+        '<input id="baRange" type="range" min="0" max="100" value="50" '
+        'style="position:absolute;inset:0;width:100%;opacity:0;cursor:ew-resize;margin:0;" />'
+        "</div>"
+        "<div style='text-align:center;color:#8d8163;font-size:12px;margin-top:6px;"
+        "letter-spacing:.08em;'>◀ drag to compare ▶</div>"
+        "<script>(function(){var r=document.getElementById('baRange'),"
+        "t=document.getElementById('baTop'),h=document.getElementById('baHandle');"
+        "r.addEventListener('input',function(e){var v=e.target.value;"
+        "t.style.clipPath='inset(0 '+(100-v)+'% 0 0)';h.style.left=v+'%';});})();</script>"
+    )
+
+
+def style_dna_html(taste_rows, style_iq) -> str:
+    """Horizontal taste-profile bars aggregated by palette family."""
+    fam = {}
+    for t in taste_rows:
+        f = fam.setdefault(t["family"], [0, 0])
+        f[0] += t["likes"]
+        f[1] += t["dislikes"]
+    if not fam:
+        return ("<div style='color:#a79b7c;font-size:14px'>No swipes yet — spin a look and "
+                "hit 👍 LOVE IT or 👎 NEXT to start training your Style DNA.</div>")
+    rows = sorted(fam.items(), key=lambda kv: kv[1][0] - kv[1][1], reverse=True)
+    parts = ["<div style='display:flex;flex-direction:column;gap:10px'>"]
+    for name, (lk, dk) in rows:
+        tot = lk + dk
+        pct = round(100 * lk / tot) if tot else 0
+        color = "#2dd4a0" if pct >= 50 else "#e8a13c"
+        parts.append(
+            "<div><div style='display:flex;justify-content:space-between;font-size:13px;"
+            "color:#f2ead6;margin-bottom:4px;'><span style='font-weight:700;text-transform:capitalize'>%s</span>"
+            "<span style='color:#a79b7c'>%d 👍 · %d 👎</span></div>"
+            "<div style='background:rgba(255,255,255,.07);border-radius:8px;height:12px;overflow:hidden;'>"
+            "<div style='width:%d%%;height:100%%;border-radius:8px;"
+            "background:linear-gradient(90deg,#d4af37,%s);'></div></div></div>"
+            % (name, lk, dk, pct, color)
+        )
+    parts.append("</div>")
+    iq = ("<div style='margin-top:12px;font-size:15px;color:#ffd76a;font-weight:700'>"
+          "🧠 Style IQ %d%% — the machine is learning your taste</div>" % style_iq) if style_iq is not None else ""
+    return "".join(parts) + iq
+
+
+def _cover(img: Image.Image, box) -> Image.Image:
+    bw, bh = box
+    w, h = img.size
+    s = max(bw / w, bh / h)
+    img = img.resize((int(w * s + .5), int(h * s + .5)), Image.LANCZOS)
+    x, y = (img.width - bw) // 2, (img.height - bh) // 2
+    return img.crop((x, y, x + bw, y + bh))
+
+
+def look_card_png(before_bytes: bytes, after_uri: str, look: dict) -> bytes:
+    """Shareable 1080x1350 look card (PIL, zero API units)."""
+    W, H = 1080, 1350
+    top, bot = (34, 20, 62), (10, 10, 18)
+    card = Image.new("RGB", (W, H))
+    px = card.load()
+    for y in range(H):
+        t = y / H
+        c = tuple(int(top[i] + (bot[i] - top[i]) * t) for i in range(3))
+        for x in range(W):
+            px[x, y] = c
+    glow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    gd = ImageDraw.Draw(glow)
+    for r in range(420, 0, -10):
+        gd.ellipse([W // 2 - r * 2, -r * 2, W // 2 + r * 2, r * 2],
+                   fill=(212, 175, 55, int(20 * (1 - r / 420))))
+    card = Image.alpha_composite(card.convert("RGBA"), glow).convert("RGB")
+    d = ImageDraw.Draw(card, "RGBA")
+
+    serif_b = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf", 56)
+    sans_b = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
+    sans = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 22)
+    sans_s = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 18)
+    GOLD, CREAM, MUT = (212, 175, 55), (250, 245, 233), (200, 188, 156)
+
+    def center(y, text, font, fill):
+        bb = d.textbbox((0, 0), text, font=font)
+        d.text(((W - (bb[2] - bb[0])) // 2, y), text, font=font, fill=fill)
+
+    y = 46
+    center(y, "LOOK ROULETTE  ·  SPIN. SWIPE. SLAY.", sans_b, GOLD)
+    y += 52
+    before = _cover(Image.open(io.BytesIO(before_bytes)).convert("RGB"), (492, 560))
+    raw = after_uri.split(",", 1)[1] if "," in after_uri else after_uri
+    after = _cover(Image.open(io.BytesIO(base64.b64decode(raw))).convert("RGB"), (492, 560))
+    card.paste(before, (28, y)); card.paste(after, (560, y))
+    d.rectangle([28, y, 520, y + 560], outline=GOLD, width=3)
+    d.rectangle([560, y, 1052, y + 560], outline=GOLD, width=3)
+    for lx, tx in ((48, "BEFORE"), (580, "AFTER")):
+        d.rounded_rectangle([lx, y + 14, lx + 150, y + 52], radius=19, fill=(0, 0, 0, 150))
+        d.text((lx + 22, y + 20), tx, font=sans_b, fill=GOLD)
+    y += 596
+    center(y, look["look_name"], serif_b, (255, 215, 106)); y += 84
+    center(y, "%s undertone  ·  %s family  ·  %s" % (look["undertone"], look["family"], look["texture"]), sans, MUT)
+    y += 52
+    pal = look["palette"]
+    hexes = [pal["lip"]["hex"], pal["blush_hex"]] + pal["shadows"]
+    sw, gap = 120, 16
+    x0 = (W - (len(hexes) * sw + (len(hexes) - 1) * gap)) // 2
+    for i, hx in enumerate(hexes):
+        x = x0 + i * (sw + gap)
+        d.rounded_rectangle([x, y, x + sw, y + sw], radius=18, fill=tuple(int(hx[j:j + 2], 16) for j in (1, 3, 5)),
+                            outline=(255, 255, 255, 70), width=2)
+        bb = d.textbbox((0, 0), hx, font=sans_s)
+        d.text((x + (sw - (bb[2] - bb[0])) // 2, y + sw + 8), hx, font=sans_s, fill=MUT)
+    y += sw + 52
+    for x in range(90, W - 90):
+        a = int(180 * (1 - abs(x - W / 2) / (W / 2)))
+        d.line([(x, y), (x, y + 2)], fill=GOLD + (a,))
+    y += 26
+    center(y, "Rendered with YouCam Makeup VTO", sans, MUT); y += 34
+    if look.get("simulated"):
+        center(y, "Simulated preview — illustrative render", sans_s, (141, 129, 99))
+    buf = io.BytesIO()
+    card.save(buf, format="PNG")
+    return buf.getvalue()
+
+
 # ---------------------------------------------------------------- header
 st.markdown("<div class='kicker'>YouCam API · Skin AI &amp; eCommerce VTO Hackathon</div>", unsafe_allow_html=True)
 st.markdown("<div class='hero-title'>🎰 Look Roulette</div>", unsafe_allow_html=True)
@@ -226,7 +369,16 @@ if look:
     st.markdown("<div class='look-card'>", unsafe_allow_html=True)
     c1, c2 = st.columns([1, 1])
     with c1:
-        st.image(look["image"], caption="Rendered look" + (" (simulated)" if look.get("simulated") else ""), use_container_width=True)
+        try:
+            _im = Image.open(io.BytesIO(st.session_state.selfie))
+            _h = max(320, min(680, int(600 * _im.height / _im.width)))
+        except Exception:
+            _h = 520
+        _raw = look["image"].split(",", 1)[1] if "," in look["image"] else look["image"]
+        components.html(slider_html(base64.b64encode(st.session_state.selfie).decode(), _raw),
+                        height=_h + 40)
+        if look.get("simulated"):
+            st.caption("After render is simulated — illustrative.")
     with c2:
         st.markdown("<div class='lookname'>%s</div>" % look["look_name"], unsafe_allow_html=True)
         st.markdown("<span class='badge'>%s undertone</span> <span class='badge'>%s · %s</span>"
@@ -272,7 +424,22 @@ if look:
                 st.success("Added to cart (mock).")
             except Exception as e:
                 st.error("Cart failed: %s" % str(e)[:120])
+        st.write("")
+        try:
+            _card = look_card_png(st.session_state.selfie, look["image"], look)
+            st.download_button("📥 Download Look Card", data=_card,
+                               file_name="look-roulette-%s.png" % look["look_id"],
+                               mime="image/png")
+        except Exception as e:
+            st.caption("Look card unavailable: %s" % str(e)[:100])
     st.markdown("</div>", unsafe_allow_html=True)
+
+    with st.expander("🧬 Style DNA — what the machine has learned"):
+        try:
+            _t = backend_get("/taste")
+            st.markdown(style_dna_html(_t.get("taste", []), _t.get("style_iq")), unsafe_allow_html=True)
+        except Exception:
+            st.caption("Style DNA unavailable.")
 
 with st.expander("🕘 Your spin history"):
     try:

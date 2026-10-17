@@ -47,6 +47,7 @@ For an instant demo without a photo: append `?demo=1` (uses an illustrated demo 
 | POST | `/spin` | multipart selfie → `{look_id, look_name, palette, image (data URI), jackpot, simulated, skin_report}` |
 | POST | `/swipe` | `{look_id, liked}` → updates taste profile, returns Style IQ |
 | GET | `/looks` | spin history |
+| GET | `/taste` | learned taste profile (per family/texture likes+dislikes) + Style IQ |
 | POST | `/cart` | mock add-to-cart → `{cart, total}` |
 
 ## Project layout
@@ -54,7 +55,7 @@ For an instant demo without a photo: append `?demo=1` (uses an illustrated demo 
 ```
 lookroulette/
 ├── app/
-│   ├── main.py          # FastAPI: /spin /swipe /looks /cart /health
+│   ├── main.py          # FastAPI: /spin /swipe /looks /taste /cart /health
 │   ├── db.py            # SQLite: spins + taste tables
 │   ├── palette.py       # pure-Python undertone → hue-family generator (deterministic)
 │   ├── youcam.py        # provider protocol; SIMULATED mock + live YouCam client + factory
