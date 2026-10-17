@@ -27,29 +27,59 @@ BACKEND = os.environ.get("LOOKROULETTE_BACKEND", "http://127.0.0.1:8000")
 
 st.set_page_config(page_title="Look Roulette", page_icon="🎰", layout="wide")
 
-CASINO_CSS = """
+st.markdown(
+    "<link href='https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800&family=Montserrat:wght@400;500;600;700;800&display=swap' rel='stylesheet'>",
+    unsafe_allow_html=True,
+)
+
+NOIR_CSS = """
 <style>
-.stApp { background: radial-gradient(circle at 50% 0%, #2a1245 0%, #12081f 70%); }
-h1, h2, h3, .stMarkdown { color: #f5e9ff !important; }
-.spin-btn button {
-    background: linear-gradient(180deg, #ffd76a, #f5a623) !important;
-    color: #3a1c00 !important; font-size: 26px !important; font-weight: 800 !important;
-    border-radius: 16px !important; padding: 14px 40px !important;
-    border: 3px solid #fff2c9 !important;
-    box-shadow: 0 0 24px rgba(245, 197, 24, .55) !important;
-    width: 100%;
+#MainMenu { visibility: hidden; }
+footer { visibility: hidden; }
+header[data-testid="stHeader"] { background: rgba(0,0,0,0); }
+
+.stApp {
+    background:
+        radial-gradient(ellipse 90% 45% at 50% -8%, rgba(212,175,55,0.12), rgba(212,175,55,0) 70%),
+        radial-gradient(circle at 50% 0%, #1d1036 0%, #0a0a12 62%) !important;
+    font-family: 'Montserrat', system-ui, -apple-system, sans-serif;
 }
-.swipe-like button { background: #22c55e !important; color: white !important;
-    font-size: 20px !important; font-weight: 700 !important; border-radius: 12px !important; width: 100%; }
-.swipe-nope button { background: #3b3b4d !important; color: #ffdada !important;
-    font-size: 20px !important; font-weight: 700 !important; border-radius: 12px !important; width: 100%; }
-.badge { display:inline-block; padding:4px 14px; border-radius:999px;
-    background:#f5c518; color:#3a1c00; font-weight:700; font-size:14px; }
-.lookname { font-size:30px; font-weight:800; color:#ffd76a; }
-.hint { color:#c9b8e8 !important; }
+h1, h2, h3 { font-family: 'Playfair Display', Georgia, 'Times New Roman', serif !important; color: #f8f2e4 !important; }
+.stMarkdown p, .stMarkdown li, p, li { color: #ddd2b8 !important; }
+.stCaption { color: #9a8f74 !important; }
+.hint { color: #b9ac8d !important; }
+
+.kicker { text-transform: uppercase; letter-spacing: .38em; font-size: 11.5px; color: #d4af37; font-weight: 700; }
+.hero-title { font-family: 'Playfair Display', Georgia, serif; font-size: 56px; font-weight: 800; color: #faf5e9; line-height: 1.05; margin: 6px 0 4px; }
+.hero-sub { color: #c8bc9c; font-size: 17px; margin-bottom: 2px; }
+.gold-rule { height: 2px; border: 0; background: linear-gradient(90deg, transparent, #d4af37 30%, #d4af37 70%, transparent); margin: 16px 0 10px; opacity: .8; }
+
+.notice { border: 1px solid rgba(212,175,55,.45); background: rgba(212,175,55,.07); border-radius: 12px; padding: 10px 16px; color: #ead9a4; font-size: 14px; }
+
+.step-card { background: rgba(255,255,255,.03); border: 1px solid rgba(212,175,55,.22); border-radius: 14px; padding: 12px 14px; min-height: 118px; }
+.step-num { font-family: 'Playfair Display', Georgia, serif; color: #d4af37; font-size: 24px; font-weight: 700; }
+.step-label { color: #f2ead6; font-weight: 700; font-size: 14px; margin-top: 2px; }
+.step-desc { color: #a79b7c; font-size: 12.5px; margin-top: 2px; }
+
+.look-card { background: rgba(255,255,255,.035); border: 1px solid rgba(212,175,55,.30); border-radius: 18px; padding: 22px; box-shadow: 0 10px 44px rgba(0,0,0,.5); }
+.lookname { font-family: 'Playfair Display', Georgia, serif; font-size: 36px; font-weight: 700; color: #ffd76a; margin: 0 0 4px; }
+.badge { display: inline-block; padding: 5px 15px; border-radius: 999px; background: rgba(212,175,55,.13); border: 1px solid rgba(212,175,55,.55); color: #ffd76a; font-weight: 600; font-size: 13px; margin: 3px 6px 3px 0; }
+
+.spin-btn button { background: linear-gradient(180deg, #ffe08a, #f0b429) !important; color: #3a2400 !important; font-size: 24px !important; font-weight: 800 !important; letter-spacing: .12em !important; border-radius: 16px !important; padding: 16px 20px !important; border: 1px solid #fff3cf !important; box-shadow: 0 0 28px rgba(240,180,41,.5), inset 0 1px 0 rgba(255,255,255,.6) !important; width: 100%; text-transform: uppercase; }
+.spin-btn button:hover { filter: brightness(1.06); }
+.swipe-like button { background: linear-gradient(180deg, #2dd4a0, #16a34a) !important; color: #062b1c !important; font-size: 17px !important; font-weight: 800 !important; letter-spacing: .06em !important; border-radius: 12px !important; width: 100%; border: 1px solid #a7f3d0 !important; padding: 12px !important; }
+.swipe-nope button { background: rgba(255,255,255,.06) !important; color: #e8c9c9 !important; font-size: 17px !important; font-weight: 800 !important; letter-spacing: .06em !important; border-radius: 12px !important; width: 100%; border: 1px solid rgba(255,255,255,.22) !important; padding: 12px !important; }
+.stButton > button { transition: filter .15s ease; }
+
+[data-testid="stSidebar"] { background: #0c0c14 !important; border-right: 1px solid rgba(212,175,55,.18); }
+[data-testid="stExpander"] { border: 1px solid rgba(212,175,55,.25); border-radius: 12px; background: rgba(255,255,255,.02); }
+[data-testid="stProgressBar"] > div > div { background: linear-gradient(90deg, #d4af37, #ffe08a) !important; }
+
+.footer-note { text-align: center; color: #8d8163; font-size: 12.5px; letter-spacing: .04em; }
+.footer-note b { color: #c9b98a; }
 </style>
 """
-st.markdown(CASINO_CSS, unsafe_allow_html=True)
+st.markdown(NOIR_CSS, unsafe_allow_html=True)
 
 
 def demo_portrait() -> bytes:
@@ -106,8 +136,22 @@ def slot_animation():
 
 
 # ---------------------------------------------------------------- header
-st.markdown("# 🎰 Look Roulette")
-st.markdown("<span class='hint'>Spin. Swipe. Slay. — your face, the slot machine.</span>", unsafe_allow_html=True)
+st.markdown("<div class='kicker'>YouCam API · Skin AI &amp; eCommerce VTO Hackathon</div>", unsafe_allow_html=True)
+st.markdown("<div class='hero-title'>🎰 Look Roulette</div>", unsafe_allow_html=True)
+st.markdown("<div class='hero-sub'><i>Spin. Swipe. Slay.</i> — your face, the slot machine.</div>", unsafe_allow_html=True)
+st.markdown("<hr class='gold-rule'/>", unsafe_allow_html=True)
+
+_steps = [("01", "Upload", "Drop in your selfie"),
+          ("02", "Spin", "AI renders the look"),
+          ("03", "Swipe", "Teach it your taste"),
+          ("04", "Shop", "Check out the look")]
+_scols = st.columns(4)
+for _c, (_n, _l, _d) in zip(_scols, _steps):
+    _c.markdown(
+        "<div class='step-card'><div class='step-num'>%s</div>"
+        "<div class='step-label'>%s</div><div class='step-desc'>%s</div></div>" % (_n, _l, _d),
+        unsafe_allow_html=True,
+    )
 
 try:
     health = backend_get("/health")
@@ -117,7 +161,7 @@ except Exception:
     st.stop()
 
 if simulated:
-    st.info("🎲 **Simulated preview mode** — renders are illustrative. Connect the YouCam API credential for live YouCam AI renders.")
+    st.markdown("<div class='notice'>🎲 <b>Simulated preview mode</b> — renders are illustrative. Connect the YouCam API credential for live YouCam AI renders.</div>", unsafe_allow_html=True)
 
 demo = st.query_params.get("demo", "") == "1"
 if "selfie" not in st.session_state:
@@ -179,6 +223,7 @@ if look:
     if look.get("jackpot"):
         st.success("🎰 **JACKPOT!** Rare curated look landed on your spin!")
     st.divider()
+    st.markdown("<div class='look-card'>", unsafe_allow_html=True)
     c1, c2 = st.columns([1, 1])
     with c1:
         st.image(look["image"], caption="Rendered look" + (" (simulated)" if look.get("simulated") else ""), use_container_width=True)
@@ -227,6 +272,7 @@ if look:
                 st.success("Added to cart (mock).")
             except Exception as e:
                 st.error("Cart failed: %s" % str(e)[:120])
+    st.markdown("</div>", unsafe_allow_html=True)
 
 with st.expander("🕘 Your spin history"):
     try:
@@ -236,3 +282,6 @@ with st.expander("🕘 Your spin history"):
                                                " · JACKPOT" if l["jackpot"] else ""))
     except Exception:
         st.caption("No history yet.")
+
+st.markdown("<hr class='gold-rule'/>", unsafe_allow_html=True)
+st.markdown("<div class='footer-note'>Built with <b>YouCam Skin AI</b> · <b>Makeup VTO</b> · <b>Look VTO</b> &nbsp;—&nbsp; FastAPI · Streamlit · SQLite</div>", unsafe_allow_html=True)
