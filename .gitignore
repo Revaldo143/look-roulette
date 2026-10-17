@@ -1,0 +1,16 @@
+# Look Roulette gitignore (submission repo prep)
+.venv/
+__pycache__/
+*.pyc
+.env
+# SQLite taste db (runtime data, not code)
+data/
+# build artifacts; demo video ships via YouTube link
+video/
+# build renders
+shots/
+*.log
+.DS_Store
+
+# local git history backup (never push)
+.git.bak/
