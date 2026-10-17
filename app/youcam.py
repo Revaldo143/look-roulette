@@ -22,7 +22,16 @@ import urllib.request
 from PIL import Image, ImageEnhance
 
 sys.path.insert(0, "/opt/muse/skills/custom-connector-setup/bin")
-from dynamic_credentials import dynamic_credential_entry
+try:
+    from dynamic_credentials import dynamic_credential_entry
+
+    _VAULT_AVAILABLE = True
+except ImportError:
+    # Not running inside Muse (e.g. the developer's own laptop): there is no
+    # Secure Vault here, so the live client is unavailable. get_provider()
+    # falls back to the clearly-labeled SIMULATED mock instead of crashing.
+    dynamic_credential_entry = None  # type: ignore[assignment]
+    _VAULT_AVAILABLE = False
 
 HOST = "https://yce-api-01.makeupar.com"
 VAULT_CONNECTION = "custom.youcam"
@@ -381,6 +390,8 @@ def palette_to_effects(palette: dict) -> list:
 def get_provider() -> YouCamProvider:
     """Factory: live client when the vault holds the YouCam credential,
     else SIMULATED mock."""
+    if not _VAULT_AVAILABLE:
+        return MockYouCamProvider()
     try:
         return LiveYouCamProvider()
     except Exception:
