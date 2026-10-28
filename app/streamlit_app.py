@@ -811,14 +811,14 @@ def swatches_html(palette: dict) -> str:
     for i, s in enumerate(shadows):
         items.append((f"Shadow {i+1}" if len(shadows) > 1 else "Shadow", s))
 
+    # SWATCH FIX: chips are built as single-line strings with no leading
+    # whitespace and no blank lines. The old triple-quoted chips left a
+    # whitespace-only line between items; Markdown ends the HTML block at
+    # that blank line and renders the following 8-space-indented lines as
+    # an indented code block — so Blush/Shadow chips showed as literal
+    # HTML source text instead of coloured chips.
     chips = "".join(
-        f"""
-        <div class="sw">
-          <div class="chip" style="background:{h};" title="{lbl}: {h}"></div>
-          <div class="lbl">{lbl}</div>
-          <div class="hex">{h}</div>
-        </div>
-        """
+        f'<div class="sw"><div class="chip" style="background:{h};" title="{lbl}: {h}"></div><div class="lbl">{lbl}</div><div class="hex">{h}</div></div>'
         for lbl, h in items
     )
     return f'<div class="swatches">{chips}</div>'
@@ -894,34 +894,19 @@ def style_dna_html(taste_rows, style_iq) -> str:
         return "<p class='empty-note'>No swipes yet — spin a look and vote 👍 LOVE IT or 👎 NEXT to train your Style DNA.</p>"
 
     rows = sorted(fam.items(), key=lambda kv: kv[1][0] - kv[1][1], reverse=True)
+    # SWATCH FIX (same defect as swatches_html): row parts are single-line
+    # strings with no leading whitespace and no blank lines, so Markdown
+    # cannot split them into an HTML block plus an indented code block.
     parts = ["<div style='display:flex;flex-direction:column;gap:12px;'>"]
     for name, (lk, dk) in rows:
         tot = lk + dk
         pct = round(100 * lk / tot) if tot else 0
         parts.append(
-            f"""
-            <div>
-              <div class="score" style="margin:0;">
-                <div class="row">
-                  <span style="font-weight:700;text-transform:capitalize;">{name}</span>
-                  <span style="font-size:12px;color:var(--ink-soft);">{lk} 👍 · {dk} 👎 ({pct}%)</span>
-                </div>
-                <div class="bar"><i style="width:{pct}%;"></i></div>
-              </div>
-            </div>
-            """
+            f'<div><div class="score" style="margin:0;"><div class="row"><span style="font-weight:700;text-transform:capitalize;">{name}</span><span style="font-size:12px;color:var(--ink-soft);">{lk} 👍 · {dk} 👎 ({pct}%)</span></div><div class="bar"><i style="width:{pct}%;"></i></div></div></div>'
         )
     parts.append("</div>")
     iq_part = (
-        f"""
-        <div class="iq-box" style="margin-top:14px;">
-          <div class="row">
-            <span>Style IQ — overall taste harmony</span>
-            <span>{style_iq}%</span>
-          </div>
-          <div class="bar"><i style="width:{style_iq}%;"></i></div>
-        </div>
-        """
+        f'<div class="iq-box" style="margin-top:14px;"><div class="row"><span>Style IQ — overall taste harmony</span><span>{style_iq}%</span></div><div class="bar"><i style="width:{style_iq}%;"></i></div></div>'
         if style_iq is not None
         else ""
     )
