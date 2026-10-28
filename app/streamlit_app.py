@@ -159,6 +159,27 @@ p, span, label, div {
   margin-top: 2px;
 }
 
+/* P1-1 FIX (cards): sections that contain interactive widgets CANNOT be
+   wrapped by a <section> opened in one st.markdown and closed in another
+   (separate DOM elements again). Those sections now use Streamlit-native
+   st.container(border=True), and this rule paints every bordered container
+   with the card look. Sections that are a single markdown string keep
+   using .card directly (skin report, Under the Hood, footer). */
+div[data-testid="stVerticalBlockBorderWrapper"] {
+  background: var(--panel) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 18px !important;
+  box-shadow: var(--shadow) !important;
+  padding: 20px !important;
+  margin-bottom: 20px !important;
+}
+
+/* P2-17 NOTE (fonts, explicit): Bricolage Grotesque / Public Sans /
+   IBM Plex Mono load from Google Fonts when online and fall back to
+   system fonts offline — by design, not by accident. Bundling the font
+   files locally was NOT done (it needs font downloads + licence checks);
+   layout is unchanged either way, only typography softens offline. */
+
 /* Badges */
 .skin-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
 .badge {
@@ -242,8 +263,15 @@ p, span, label, div {
 .sw .hex { font-family: "IBM Plex Mono", monospace; font-size: 10.5px; color: var(--ink-soft); }
 .swatch-note { font-size: 12.5px; color: var(--ink-faint); margin: 6px 0 12px; line-height: 1.4; }
 
-/* Buttons */
-.spin-btn button {
+/* Buttons.
+   P1-1 FIX: Streamlit renders every st.markdown / st.button as a SEPARATE
+   DOM element, so a <div class="spin-btn"> opened in one markdown element
+   can NEVER wrap the button rendered in the next element — the old
+   ".spin-btn button" selectors matched nothing. The working mechanism:
+   the marker div's stMarkdown block is immediately followed by the button's
+   wrapper div, so the selector targets the NEXT SIBLING element's button
+   via :has(). (Needs a visual check: Streamlit's DOM is client-rendered.) */
+div[data-testid="stMarkdown"]:has(.spin-btn) + div button {
   width: 100% !important;
   background: linear-gradient(180deg, #ffd76a, #f5a623) !important;
   color: #3a1c00 !important;
@@ -258,12 +286,12 @@ p, span, label, div {
   text-transform: uppercase !important;
   transition: transform .12s ease, filter .12s ease !important;
 }
-.spin-btn button:hover {
+div[data-testid="stMarkdown"]:has(.spin-btn) + div button:hover {
   transform: translateY(-2px) !important;
   filter: brightness(1.08) !important;
 }
 
-.btn-love button {
+div[data-testid="stMarkdown"]:has(.btn-love) + div button {
   width: 100% !important;
   background: #22c55e !important;
   color: #06280f !important;
@@ -275,12 +303,12 @@ p, span, label, div {
   padding: 12px 10px !important;
   transition: transform .12s ease !important;
 }
-.btn-love button:hover {
+div[data-testid="stMarkdown"]:has(.btn-love) + div button:hover {
   transform: translateY(-1px) !important;
   filter: brightness(1.08) !important;
 }
 
-.btn-next button {
+div[data-testid="stMarkdown"]:has(.btn-next) + div button {
   width: 100% !important;
   background: var(--panel-2) !important;
   color: var(--ink) !important;
@@ -292,12 +320,12 @@ p, span, label, div {
   padding: 12px 10px !important;
   transition: transform .12s ease !important;
 }
-.btn-next button:hover {
+div[data-testid="stMarkdown"]:has(.btn-next) + div button:hover {
   transform: translateY(-1px) !important;
   filter: brightness(1.08) !important;
 }
 
-.btn-shop button {
+div[data-testid="stMarkdown"]:has(.btn-shop) + div button {
   width: 100% !important;
   background: #7a2340 !important;
   color: #ffffff !important;
@@ -310,12 +338,12 @@ p, span, label, div {
   margin-top: 8px !important;
   transition: transform .12s ease !important;
 }
-.btn-shop button:hover {
+div[data-testid="stMarkdown"]:has(.btn-shop) + div button:hover {
   transform: translateY(-1px) !important;
   filter: brightness(1.08) !important;
 }
 
-.btn-download button {
+div[data-testid="stMarkdown"]:has(.btn-download) + div button {
   width: 100% !important;
   background: rgba(255, 215, 106, 0.12) !important;
   color: var(--gold) !important;
@@ -328,7 +356,7 @@ p, span, label, div {
   margin-top: 6px !important;
 }
 
-.btn-checkout button {
+div[data-testid="stMarkdown"]:has(.btn-checkout) + div button {
   width: 100% !important;
   background: #7a2340 !important;
   color: #ffffff !important;
@@ -519,8 +547,14 @@ def demo_portrait() -> bytes:
     return buf.getvalue()
 
 
-def backend_get(path):
-    return httpx.get(BACKEND + path, timeout=15).json()
+def backend_get(path, timeout=15, headers=None):
+    return httpx.get(BACKEND + path, timeout=timeout, headers=headers).json()
+
+
+def cart_headers():
+    # P1-5: every cart call carries the client session id so the backend
+    # cart is per-session, not one global list.
+    return {"X-Session-Id": st.session_state.session_id}
 
 
 def slider_html(before_b64: str, after_b64: str, look_name: str = "Berry Bonanza", is_real: bool = True) -> str:
@@ -692,9 +726,15 @@ def slider_html(before_b64: str, after_b64: str, look_name: str = "Berry Bonanza
     """
 
 
-def stage_single_html(image_b64: str, is_demo: bool = False) -> str:
+def stage_single_html(image_b64: str, is_demo: bool = False, simulated: bool = True) -> str:
     """Web Card Stage: Single photo display before the first spin."""
     desc = "Illustrated demo portrait." if is_demo else "Your uploaded selfie."
+    # P2-3: the caption must not promise a YouCam analysis in simulated mode.
+    spin_cap = (
+        "Press the golden SPIN button for a simulated preview look."
+        if simulated
+        else "Press the golden SPIN button to let YouCam Skin AI analyze your undertone and spin your look."
+    )
     return f"""
     <!DOCTYPE html>
     <html>
@@ -753,7 +793,7 @@ def stage_single_html(image_b64: str, is_demo: bool = False) -> str:
         <img src="data:image/png;base64,{image_b64}" alt="Selfie portrait" />
         <span class="tag">READY TO SPIN</span>
       </div>
-      <p class="stage-cap"><b>{desc}</b> Press the golden SPIN button to let YouCam Skin AI analyze your undertone and spin your look.</p>
+      <p class="stage-cap"><b>{desc}</b> {spin_cap}</p>
     </div>
     </body>
     </html>
@@ -784,30 +824,61 @@ def swatches_html(palette: dict) -> str:
     return f'<div class="swatches">{chips}</div>'
 
 
-def skin_report_html(skin_report: dict, undertone: str = "NEUTRAL", simulated: bool = True) -> str:
-    """Card: Skin Analysis Report with animated gradient progress bars."""
-    scores = skin_report.get("scores") or {}
-    rad = int(scores.get("radiance", scores.get("Radiance", 78)))
-    eve = int(scores.get("evenness", scores.get("spots", scores.get("Evenness", 64))))
-    smo = int(scores.get("smoothness", scores.get("texture", scores.get("Smoothness", 82))))
+def _score_val(scores: dict, *keys) -> int | None:
+    """P2-6: return a clamped int score, or None when the value is missing,
+    None, or non-numeric — never int(None), never a fabricated default."""
+    for key in keys:
+        val = scores.get(key)
+        if val is None:
+            continue
+        try:
+            return max(10, min(100, int(val)))
+        except (TypeError, ValueError):
+            continue
+    return None
 
-    rad = max(10, min(100, rad))
-    eve = max(10, min(100, eve))
-    smo = max(10, min(100, smo))
+
+def skin_report_html(skin_report: dict, undertone: str = "NEUTRAL", simulated: bool = True) -> str:
+    """Card: Skin Analysis Report with animated gradient progress bars.
+
+    P1-3 FIX: no hardcoded 78/64/82 fallbacks anywhere. A bar renders ONLY
+    when a real score value exists; the caller renders this card only after
+    a spin with real score data. Badges and fineprint state the mode
+    truthfully: simulated = 0 units, preview engine.
+    """
+    scores = skin_report.get("scores") or {}
+    bars = [
+        ("Radiance", _score_val(scores, "radiance", "Radiance")),
+        ("Evenness", _score_val(scores, "evenness", "spots", "Evenness")),
+        ("Smoothness", _score_val(scores, "smoothness", "texture", "Smoothness")),
+    ]
+    bars = [(label, val) for label, val in bars if val is not None]
 
     mode_note = "from YouCam SD Skin Analysis" if not simulated else "YouCam SD Skin Analysis · simulated"
+    engine_badge = "Engine: YouCam Skin AI" if not simulated else "Engine: simulated preview"
+    cost_badge = "Cost: 9 units" if not simulated else "Cost: 0 units (simulated)"
+    fineprint = (
+        "The undertone is analyzed by YouCam Skin AI. Scores show skin health metrics."
+        if not simulated
+        else "Simulated preview — scores are illustrative, not a measurement."
+    )
+    bars_html = "".join(
+        f'<div class="score"><div class="row"><span>{label}</span><span>{val}%</span></div>'
+        f'<div class="bar"><i style="width:{val}%;"></i></div></div>'
+        for label, val in bars
+    )
+    if not bars_html:
+        bars_html = "<p class='empty-note'>No skin scores returned for this spin.</p>"
     return f"""
     <section class="card" aria-label="Skin analysis report">
       <h2>Skin Analysis Report <span class="sub">{mode_note}</span></h2>
       <div class="skin-grid">
         <span class="badge">Undertone: {undertone.upper()}</span>
-        <span class="badge plain">Engine: YouCam Skin AI</span>
-        <span class="badge plain">Cost: 9 units</span>
+        <span class="badge plain">{engine_badge}</span>
+        <span class="badge plain">{cost_badge}</span>
       </div>
-      <div class="score"><div class="row"><span>Radiance</span><span>{rad}%</span></div><div class="bar"><i style="width:{rad}%;"></i></div></div>
-      <div class="score"><div class="row"><span>Evenness</span><span>{eve}%</span></div><div class="bar"><i style="width:{eve}%;"></i></div></div>
-      <div class="score"><div class="row"><span>Smoothness</span><span>{smo}%</span></div><div class="bar"><i style="width:{smo}%;"></i></div></div>
-      <p class="fineprint">The undertone is analyzed by YouCam Skin AI. Scores show skin health metrics.</p>
+      {bars_html}
+      <p class="fineprint">{fineprint}</p>
     </section>
     """
 
@@ -944,31 +1015,42 @@ def look_card_png(before_bytes: bytes, after_uri: str, look: dict) -> bytes:
         MUT,
     )
     y += 48
-    pal = look.get("palette", {})
-    lip = pal.get("lip", {})
-    lip_hex = lip.get("hex") if isinstance(lip, dict) else (lip or "#B5542D")
-    blush_hex = pal.get("blush_hex") or pal.get("blush") or "#D98A68"
-    shadows = pal.get("shadows") or ["#8A5A3B", "#C98B5E", "#5E3A24"]
-    hexes = [lip_hex, blush_hex] + shadows
+    # P1-6: jackpot cards show the template image, not a palette render —
+    # drawing palette swatches on them would mislabel the look. Skip the
+    # swatch row for jackpots and say so in the render line instead.
+    if not look.get("jackpot"):
+        pal = look.get("palette", {})
+        lip = pal.get("lip", {})
+        lip_hex = lip.get("hex") if isinstance(lip, dict) else (lip or "#B5542D")
+        blush_hex = pal.get("blush_hex") or pal.get("blush") or "#D98A68"
+        shadows = pal.get("shadows") or ["#8A5A3B", "#C98B5E", "#5E3A24"]
+        hexes = [lip_hex, blush_hex] + shadows
 
-    sw, gap = 114, 16
-    x0 = (W - (len(hexes) * sw + (len(hexes) - 1) * gap)) // 2
-    for i, hx in enumerate(hexes):
-        x = x0 + i * (sw + gap)
-        try:
-            fill_c = tuple(int(hx[j : j + 2], 16) for j in (1, 3, 5))
-        except Exception:
-            fill_c = (180, 100, 80)
-        d.rounded_rectangle([x, y, x + sw, y + sw], radius=16, fill=fill_c, outline=(255, 255, 255, 70), width=2)
-        bb = d.textbbox((0, 0), hx, font=sans_s)
-        d.text((x + (sw - (bb[2] - bb[0])) // 2, y + sw + 8), hx, font=sans_s, fill=MUT)
+        sw, gap = 114, 16
+        x0 = (W - (len(hexes) * sw + (len(hexes) - 1) * gap)) // 2
+        for i, hx in enumerate(hexes):
+            x = x0 + i * (sw + gap)
+            try:
+                fill_c = tuple(int(hx[j : j + 2], 16) for j in (1, 3, 5))
+            except Exception:
+                fill_c = (180, 100, 80)
+            d.rounded_rectangle([x, y, x + sw, y + sw], radius=16, fill=fill_c, outline=(255, 255, 255, 70), width=2)
+            bb = d.textbbox((0, 0), hx, font=sans_s)
+            d.text((x + (sw - (bb[2] - bb[0])) // 2, y + sw + 8), hx, font=sans_s, fill=MUT)
 
-    y += sw + 46
+        y += sw + 46
+    else:
+        y += 20
     for x in range(90, W - 90):
         a = int(180 * (1 - abs(x - W / 2) / (W / 2)))
         d.line([(x, y), (x, y + 2)], fill=GOLD + (a,))
     y += 24
-    center(y, "Rendered with YouCam Makeup VTO", sans, MUT)
+    render_line = (
+        "Curated YouCam Look VTO template"
+        if look.get("jackpot")
+        else "Rendered with YouCam Makeup VTO"
+    )
+    center(y, render_line, sans, MUT)
     y += 32
     if look.get("simulated"):
         center(y, "Simulated preview — illustrative render", sans_s, (154, 131, 196))
@@ -977,13 +1059,6 @@ def look_card_png(before_bytes: bytes, after_uri: str, look: dict) -> bytes:
     card.save(buf, format="PNG")
     return buf.getvalue()
 
-
-# ---------------------------------------------------------------- backend health check
-try:
-    health = backend_get("/health")
-    simulated = health.get("simulated", True)
-except Exception:
-    simulated = True
 
 # ---------------------------------------------------------------- session state setup
 demo_flag = st.query_params.get("demo", "") == "1"
@@ -1002,9 +1077,57 @@ if "feedback" not in st.session_state:
     st.session_state.feedback = ""
 if "reels" not in st.session_state:
     st.session_state.reels = ["♦", "★", "7"]
+if "uploaded_file_id" not in st.session_state:
+    # P0-1: fingerprint of the last processed upload (see uploader guard).
+    st.session_state.uploaded_file_id = None
+if "spin_error" not in st.session_state:
+    # P1-2: spin errors survive reruns via session state, never bare st.error.
+    st.session_state.spin_error = ""
+if "session_id" not in st.session_state:
+    # P1-5: per-browser cart session id, sent as X-Session-Id on cart calls.
+    import uuid as _uuid
+
+    st.session_state.session_id = _uuid.uuid4().hex
+if "look_card_cache" not in st.session_state:
+    # P2-2: (look_id, png bytes) — the card is built once, not every rerun.
+    st.session_state.look_card_cache = (None, None)
+if "voted_look_id" not in st.session_state:
+    # P1-8: the look already voted on this session (buttons disable for it).
+    st.session_state.voted_look_id = None
+if "health_cache" not in st.session_state:
+    # P2-1: (simulated flag, timestamp) — health is cached, not re-fetched
+    # on every rerun (old code blocked up to 15 s per rerun when down).
+    st.session_state.health_cache = (True, 0.0)
+
+# ---------------------------------------------------------------- backend health check (cached, P2-1)
+_health_cached, _health_ts = st.session_state.health_cache
+if time.time() - _health_ts > 60:
+    try:
+        health = backend_get("/health", timeout=3)
+        simulated = health.get("simulated", True)
+    except Exception:
+        simulated = True
+    st.session_state.health_cache = (simulated, time.time())
+else:
+    simulated = _health_cached
 
 # ---------------------------------------------------------------- app header
-mode_chip_text = "SIMULATED PREVIEW · <b>0 YouCam units</b>" if simulated else "LIVE BACKEND · <b>YouCam AI Active</b>"
+# P2-16: when a look is on screen, the chip follows THAT look's mode flag
+# (not a possibly-stale health check), so chip and per-look label agree.
+_header_look = st.session_state.look
+_chip_simulated = _header_look.get("simulated", simulated) if _header_look else simulated
+mode_chip_text = "SIMULATED PREVIEW · <b>0 YouCam units</b>" if _chip_simulated else "LIVE BACKEND · <b>YouCam AI Active</b>"
+
+# P2-3: the lede must not promise YouCam analysis while in simulated mode.
+lede_body = (
+    "In the full live app you upload a selfie, <b>YouCam Skin AI</b> reads your undertone, the machine spins a "
+    "harmonious palette, and <b>YouCam Makeup VTO</b> renders it on your face — then your swipes teach it your taste. "
+    "Hit <b>SPIN</b> to begin!"
+    if not _chip_simulated
+    else "In this simulated preview you upload a selfie, the machine spins a "
+    "harmonious palette, and a preview render shows it on your face — then your swipes teach it your taste. "
+    "Hit <b>SPIN</b> to begin! No YouCam units are used in simulated mode."
+)
 
 st.markdown(
     f"""
@@ -1016,9 +1139,7 @@ st.markdown(
       <div class="mode-chip">{mode_chip_text}</div>
     </div>
     <p class="lede">
-      In the full app you upload a selfie, <b>YouCam Skin AI</b> reads your undertone, the machine spins a
-      harmonious palette, and <b>YouCam Makeup VTO</b> renders it on your face — then your swipes teach it your taste.
-      Hit <b>SPIN</b> to begin!
+      {lede_body}
     </p>
     """,
     unsafe_allow_html=True,
@@ -1043,12 +1164,20 @@ with col_stage:
                     look_name=st.session_state.look.get("look_name", "Berry Bonanza"),
                     is_real=not st.session_state.look.get("simulated", simulated),
                 ),
-                height=590,
+                # P2-5: 590 px clipped the caption on wide windows (image
+                # height scales with column width). 760 px is the safest
+                # fixed height without a live resize hook — flagged in
+                # FIXES.md as "needs visual check".
+                height=760,
             )
         else:
             components.html(
-                stage_single_html(selfie_b64, is_demo=st.session_state.is_demo),
-                height=590,
+                stage_single_html(
+                    selfie_b64,
+                    is_demo=st.session_state.is_demo,
+                    simulated=simulated,
+                ),
+                height=760,
             )
     else:
         # Prompt to load photo
@@ -1072,12 +1201,25 @@ with col_stage:
         label_visibility="collapsed",
         key="uploader",
     )
+    # P0-1 FIX: the old code called st.rerun() unconditionally whenever the
+    # uploader held a value — and the widget KEEPS its value across reruns,
+    # so the app looped forever and SPIN (below this branch) never fired.
+    # Guard: act only when the uploaded file's fingerprint differs from the
+    # one already stored (name + sha256 of bytes via getvalue(), which does
+    # not consume the buffer). Repeat runs skip the branch entirely, so the
+    # page settles and SPIN stays reachable after an upload.
     if uploaded is not None:
-        st.session_state.selfie = uploaded.read()
-        st.session_state.is_demo = False
-        st.session_state.look = None
-        st.session_state.feedback = ""
-        st.rerun()
+        import hashlib as _hashlib
+
+        file_id = (uploaded.name, _hashlib.sha256(uploaded.getvalue()).hexdigest())
+        if st.session_state.uploaded_file_id != file_id:
+            st.session_state.uploaded_file_id = file_id
+            st.session_state.selfie = uploaded.getvalue()
+            st.session_state.is_demo = False
+            st.session_state.look = None
+            st.session_state.feedback = ""
+            st.session_state.spin_error = ""
+            st.rerun()
 
     c_demo, c_clear = st.columns([1, 1])
     with c_demo:
@@ -1101,294 +1243,355 @@ with col_stage:
 # ================================================================
 with col_machine:
     # 1. Skin Analysis Report Card
+    # P1-3: the card renders ONLY after a spin that returned real score
+    # data. Before that, a plain placeholder with no numbers at all.
     current_look = st.session_state.look
     undertone_val = current_look.get("undertone", "NEUTRAL") if current_look else "NEUTRAL"
     skin_report_data = current_look.get("skin_report", {}) if current_look else {}
-    st.markdown(
-        skin_report_html(
-            skin_report_data,
-            undertone=undertone_val,
-            simulated=current_look.get("simulated", simulated) if current_look else simulated,
-        ),
-        unsafe_allow_html=True,
-    )
-
-    # 2. The Roulette Machine Card
-    st.markdown('<section class="card" aria-label="The roulette machine">', unsafe_allow_html=True)
-
-    if current_look and current_look.get("jackpot"):
+    if current_look and (skin_report_data.get("scores") or {}):
         st.markdown(
-            '<div class="jackpot">🎰 JACKPOT! A rare curated look landed on your spin!</div>',
+            skin_report_html(
+                skin_report_data,
+                undertone=undertone_val,
+                simulated=current_look.get("simulated", simulated),
+            ),
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            "<p class='empty-note'>Skin Analysis Report appears after your first spin.</p>",
             unsafe_allow_html=True,
         )
 
-    # Reels display
-    r0, r1, r2 = st.session_state.reels
-    win_class = " win" if (current_look and current_look.get("jackpot")) else ""
-    reels_placeholder = st.empty()
-    reels_placeholder.markdown(
-        f"""
-        <div class="reels" aria-hidden="true">
-          <div class="reel{win_class}">{r0}</div>
-          <div class="reel{win_class}">{r1}</div>
-          <div class="reel{win_class}">{r2}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    # 2. The Roulette Machine Card (P1-1: native bordered container)
+    with st.container(border=True):
 
-    # Big Golden SPIN Button
-    st.markdown("<div class='spin-btn'>", unsafe_allow_html=True)
-    spin_btn_label = "SPIN AGAIN" if current_look else "SPIN"
-    do_spin = st.button(spin_btn_label, key="spin_btn")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    if do_spin:
-        if st.session_state.selfie is None:
-            st.session_state.selfie = demo_portrait()
-            st.session_state.is_demo = True
-
-        # Slot machine spinning animation
-        SYMBOLS = ["♦", "★", "7", "♥", "♣", "●", "✦", "🍒", "💄"]
-        for _ in range(7):
-            s0 = random.choice(SYMBOLS)
-            s1 = random.choice(SYMBOLS)
-            s2 = random.choice(SYMBOLS)
-            reels_placeholder.markdown(
-                f"""
-                <div class="reels" aria-hidden="true">
-                  <div class="reel">{s0}</div>
-                  <div class="reel">{s1}</div>
-                  <div class="reel">{s2}</div>
-                </div>
-                """,
+        if current_look and current_look.get("jackpot"):
+            st.markdown(
+                '<div class="jackpot">🎰 JACKPOT! A rare curated look landed on your spin!</div>',
                 unsafe_allow_html=True,
             )
-            time.sleep(0.12)
 
-        try:
-            r = httpx.post(
-                BACKEND + "/spin",
-                files={"file": ("selfie.png", st.session_state.selfie, "image/png")},
-                timeout=180,
-            )
-            r.raise_for_status()
-            res_look = r.json()
-            st.session_state.look = res_look
-            st.session_state.feedback = ""
-            if res_look.get("jackpot"):
-                st.session_state.reels = ["7", "7", "7"]
-            else:
-                st.session_state.reels = ["♦", "★", "7"]
-        except Exception as e:
-            st.error(f"Spin failed: {str(e)[:160]}")
-        st.rerun()
-
-    # Look Result Section (when spun)
-    if current_look:
-        is_real_look = not current_look.get("simulated", simulated)
-        real_label = "REAL YouCam render" if is_real_look else "Simulated render (preview)"
-        look_name = current_look.get("look_name", "Ember Spin")
-        look_fam = current_look.get("family", "terracotta")
-        look_tex = current_look.get("texture", "satin")
-        intensity = current_look.get("palette", {}).get("intensity", 85)
-
-        st.markdown(
+        # Reels display
+        r0, r1, r2 = st.session_state.reels
+        win_class = " win" if (current_look and current_look.get("jackpot")) else ""
+        reels_placeholder = st.empty()
+        reels_placeholder.markdown(
             f"""
-            <div class="lookname">{look_name}</div>
-            <div class="skin-grid" style="margin-bottom:6px;">
-              <span class="badge">{look_fam} family</span>
-              <span class="badge plain">{look_tex} · intensity {intensity}</span>
-              <span class="badge plain">{real_label}</span>
+            <div class="reels" aria-hidden="true">
+              <div class="reel{win_class}">{r0}</div>
+              <div class="reel{win_class}">{r1}</div>
+              <div class="reel{win_class}">{r2}</div>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-        # Swatches
-        st.markdown(swatches_html(current_look.get("palette", {})), unsafe_allow_html=True)
-        swatch_note = (
-            f"The exact palette rendered with YouCam Makeup VTO onto your selfie."
-            if is_real_look
-            else f"Generated by color-harmony engine for {undertone_val} undertone."
-        )
-        st.markdown(f'<p class="swatch-note">{swatch_note}</p>', unsafe_allow_html=True)
-
-        # Swipe Action Buttons: LOVE IT / NEXT
-        b1, b2 = st.columns(2)
-        with b1:
-            st.markdown("<div class='btn-love'>", unsafe_allow_html=True)
-            liked = st.button("👍 LOVE IT", key="love_btn")
-            st.markdown("</div>", unsafe_allow_html=True)
-        with b2:
-            st.markdown("<div class='btn-next'>", unsafe_allow_html=True)
-            nexted = st.button("👎 NEXT", key="next_btn")
-            st.markdown("</div>", unsafe_allow_html=True)
-
-        if liked or nexted:
-            is_like = bool(liked)
-            try:
-                s = httpx.post(
-                    BACKEND + "/swipe",
-                    json={"look_id": current_look["look_id"], "liked": is_like},
-                    timeout=15,
-                ).json()
-                pct = s.get("style_iq", 80)
-                st.session_state.feedback = (
-                    f"Noted! {look_fam.capitalize()} looks now carry boosted weight — machine leans your way."
-                    if is_like
-                    else f"Noted. {look_fam.capitalize()} / {look_tex} drops in frequency — you'll see it less."
-                )
-                if is_like:
-                    st.balloons()
-            except Exception as e:
-                st.session_state.feedback = f"Swipe recorded: {str(e)[:80]}"
-            st.rerun()
-
-        # Shop Button
-        st.markdown("<div class='btn-shop'>", unsafe_allow_html=True)
-        if st.button("🛒 Shop This Look", key="shop_btn"):
-            try:
-                cart_res = httpx.post(
-                    BACKEND + "/cart",
-                    json={"look_id": current_look["look_id"]},
-                    timeout=15,
-                ).json()
-                st.session_state.cart = cart_res
-                st.session_state.checkout_done = False
-                st.session_state.feedback = f"{look_name} added to cart (mock)."
-            except Exception as e:
-                st.session_state.feedback = f"Cart failed: {str(e)[:80]}"
-            st.rerun()
+        # Big Golden SPIN Button
+        st.markdown("<div class='spin-btn'>", unsafe_allow_html=True)
+        spin_btn_label = "SPIN AGAIN" if current_look else "SPIN"
+        do_spin = st.button(spin_btn_label, key="spin_btn")
         st.markdown("</div>", unsafe_allow_html=True)
 
-        # Style IQ & Feedback
-        try:
-            t_data = backend_get("/taste")
-            iq_val = t_data.get("style_iq")
-        except Exception:
-            iq_val = None
+        if do_spin:
+            if st.session_state.selfie is None:
+                st.session_state.selfie = demo_portrait()
+                st.session_state.is_demo = True
 
-        if iq_val is not None:
+            # Slot machine spinning animation
+            SYMBOLS = ["♦", "★", "7", "♥", "♣", "●", "✦", "🍒", "💄"]
+            for _ in range(7):
+                s0 = random.choice(SYMBOLS)
+                s1 = random.choice(SYMBOLS)
+                s2 = random.choice(SYMBOLS)
+                reels_placeholder.markdown(
+                    f"""
+                    <div class="reels" aria-hidden="true">
+                      <div class="reel">{s0}</div>
+                      <div class="reel">{s1}</div>
+                      <div class="reel">{s2}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                time.sleep(0.12)
+
+            try:
+                r = httpx.post(
+                    BACKEND + "/spin",
+                    files={"file": ("selfie.png", st.session_state.selfie, "image/png")},
+                    # P1-7: 180 s was SMALLER than the backend worst case
+                    # (skin poll 180 s + render poll 180 s + uploads), so
+                    # the UI could report failure while the backend still
+                    # saved the spin. 600 s covers it with margin.
+                    timeout=600,
+                )
+                r.raise_for_status()
+                res_look = r.json()
+                st.session_state.look = res_look
+                st.session_state.feedback = ""
+                st.session_state.spin_error = ""
+                st.session_state.voted_look_id = None
+                if res_look.get("jackpot"):
+                    st.session_state.reels = ["7", "7", "7"]
+                else:
+                    st.session_state.reels = ["♦", "★", "7"]
+            except Exception as e:
+                # P1-2: the error goes into session state (survives rerun)
+                # instead of a bare st.error() that the rerun discards.
+                st.session_state.spin_error = f"Spin failed: {str(e)[:160]}"
+            st.rerun()
+
+        # P1-2: show any stored spin error (it survives reruns).
+        if st.session_state.spin_error:
+            st.error(st.session_state.spin_error)
+
+        # P1-12: a live-intended spin that fell back to mock shows a VISIBLE
+        # warning — never a silent downgrade.
+        if current_look and current_look.get("fallback_warning"):
+            st.warning(current_look["fallback_warning"])
+
+        # Look Result Section (when spun)
+        if current_look:
+            is_real_look = not current_look.get("simulated", simulated)
+            real_label = "REAL YouCam render" if is_real_look else "Simulated render (preview)"
+            look_name = current_look.get("look_name", "Ember Spin")
+            look_fam = current_look.get("family", "terracotta")
+            look_tex = current_look.get("texture", "satin")
+            intensity = current_look.get("palette", {}).get("intensity", 85)
+
             st.markdown(
                 f"""
-                <div class="iq-box">
-                  <div class="row">
-                    <span>Style IQ — the machine is learning your taste</span>
-                    <span>{iq_val}%</span>
-                  </div>
-                  <div class="bar"><i style="width:{iq_val}%;"></i></div>
+                <div class="lookname">{look_name}</div>
+                <div class="skin-grid" style="margin-bottom:6px;">
+                  <span class="badge">{look_fam} family</span>
+                  <span class="badge plain">{look_tex} · intensity {intensity}</span>
+                  <span class="badge plain">{real_label}</span>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
 
-        if st.session_state.feedback:
-            st.markdown(f'<p class="feedback-msg">✨ {st.session_state.feedback}</p>', unsafe_allow_html=True)
+            # Swatches — P1-6: jackpot spins show a TEMPLATE image, so the
+            # palette swatches and any "exact palette" claim are wrong for
+            # them. Jackpots get a template note instead of swatches.
+            if current_look.get("jackpot"):
+                st.markdown(
+                    '<p class="swatch-note">Curated template look — the image comes from a '
+                    "YouCam Look VTO template, so palette swatches do not apply here.</p>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(swatches_html(current_look.get("palette", {})), unsafe_allow_html=True)
+                swatch_note = (
+                    "The exact palette rendered with YouCam Makeup VTO onto your selfie."
+                    if is_real_look
+                    else f"Generated by color-harmony engine for {undertone_val} undertone."
+                )
+                st.markdown(f'<p class="swatch-note">{swatch_note}</p>', unsafe_allow_html=True)
 
-        # Download Look Card
-        try:
-            card_bytes = look_card_png(
-                st.session_state.selfie,
-                current_look["image"],
-                current_look,
-            )
-            st.markdown("<div class='btn-download'>", unsafe_allow_html=True)
-            st.download_button(
-                "📥 Download Shareable Look Card",
-                data=card_bytes,
-                file_name=f"look-roulette-{current_look['look_id']}.png",
-                mime="image/png",
-                key="dl_btn",
-            )
+            # Swipe Action Buttons: LOVE IT / NEXT
+            # P1-8: once this look is voted on, the buttons disable so a
+            # repeat click cannot double-count (the backend also guards).
+            already_voted = st.session_state.voted_look_id == current_look.get("look_id")
+            b1, b2 = st.columns(2)
+            with b1:
+                st.markdown("<div class='btn-love'>", unsafe_allow_html=True)
+                liked = st.button("👍 LOVE IT", key="love_btn", disabled=already_voted)
+                st.markdown("</div>", unsafe_allow_html=True)
+            with b2:
+                st.markdown("<div class='btn-next'>", unsafe_allow_html=True)
+                nexted = st.button("👎 NEXT", key="next_btn", disabled=already_voted)
+                st.markdown("</div>", unsafe_allow_html=True)
+
+            if liked or nexted:
+                is_like = bool(liked)
+                try:
+                    s = httpx.post(
+                        BACKEND + "/swipe",
+                        json={"look_id": current_look["look_id"], "liked": is_like},
+                        timeout=15,
+                    ).json()
+                    # P2-13: the old dead `pct = s.get("style_iq", 80)` line
+                    # is gone (it was computed and never used).
+                    if s.get("changed"):
+                        st.session_state.feedback = (
+                            f"Noted! {look_fam.capitalize()} looks now carry boosted weight — machine leans your way."
+                            if is_like
+                            else f"Noted. {look_fam.capitalize()} / {look_tex} drops in frequency — you'll see it less."
+                        )
+                        st.session_state.voted_look_id = current_look.get("look_id")
+                        if is_like:
+                            st.balloons()
+                    else:
+                        st.session_state.feedback = "Already voted on this look — vote unchanged."
+                except Exception as e:
+                    # P1-9: the error branch must NEVER say "recorded".
+                    st.session_state.feedback = f"Swipe failed — not recorded: {str(e)[:80]}"
+                st.rerun()
+
+            # Shop Button
+            st.markdown("<div class='btn-shop'>", unsafe_allow_html=True)
+            if st.button("🛒 Shop This Look", key="shop_btn"):
+                try:
+                    cart_res = httpx.post(
+                        BACKEND + "/cart",
+                        json={"look_id": current_look["look_id"]},
+                        headers=cart_headers(),
+                        timeout=15,
+                    ).json()
+                    st.session_state.cart = cart_res
+                    st.session_state.checkout_done = False
+                    # P1-5: the backend dedups identical items — say so
+                    # instead of claiming a duplicate was added.
+                    if cart_res.get("already_in_cart"):
+                        st.session_state.feedback = f"{look_name} is already in your cart."
+                    else:
+                        st.session_state.feedback = f"{look_name} added to cart (mock)."
+                except Exception as e:
+                    st.session_state.feedback = f"Cart failed: {str(e)[:80]}"
+                st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
-        except Exception as e:
-            st.caption(f"Look card unavailable: {str(e)[:80]}")
 
-    st.markdown("</section>", unsafe_allow_html=True)
+            # Style IQ & Feedback
+            try:
+                t_data = backend_get("/taste")
+                iq_val = t_data.get("style_iq")
+            except Exception:
+                iq_val = None
+
+            if iq_val is not None:
+                st.markdown(
+                    f"""
+                    <div class="iq-box">
+                      <div class="row">
+                        <span>Style IQ — the machine is learning your taste</span>
+                        <span>{iq_val}%</span>
+                      </div>
+                      <div class="bar"><i style="width:{iq_val}%;"></i></div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+            if st.session_state.feedback:
+                st.markdown(f'<p class="feedback-msg">✨ {st.session_state.feedback}</p>', unsafe_allow_html=True)
+
+            # Download Look Card
+            # P2-2: build the PNG once per look and cache it — the old code
+            # rebuilt it (per-pixel 1080x1350 loop) on EVERY rerun.
+            try:
+                _cached_id, _cached_png = st.session_state.look_card_cache
+                if _cached_id != current_look.get("look_id") or _cached_png is None:
+                    _cached_png = look_card_png(
+                        st.session_state.selfie,
+                        current_look["image"],
+                        current_look,
+                    )
+                    st.session_state.look_card_cache = (current_look.get("look_id"), _cached_png)
+                card_bytes = _cached_png
+                st.markdown("<div class='btn-download'>", unsafe_allow_html=True)
+                st.download_button(
+                    "📥 Download Shareable Look Card",
+                    data=card_bytes,
+                    file_name=f"look-roulette-{current_look['look_id']}.png",
+                    mime="image/png",
+                    key="dl_btn",
+                )
+                st.markdown("</div>", unsafe_allow_html=True)
+            except Exception as e:
+                st.caption(f"Look card unavailable: {str(e)[:80]}")
+
 
 
 # ================================================================
 # COLUMN 3: SIDE PANEL (Your Cart + Spin History)
 # ================================================================
 with col_side:
-    # 1. Your Cart Card
-    st.markdown(
-        """
-        <section class="card" aria-label="Cart">
-          <h2>Your Cart <span class="sub">mock checkout — no real payment, no real order</span></h2>
-        """,
-        unsafe_allow_html=True,
-    )
+    # (P1-1: native bordered container — see CSS rule)
+    with st.container(border=True):
+        st.markdown("""<h2>Your Cart <span class="sub">mock checkout — no real payment, no real order</span></h2>""", unsafe_allow_html=True)
 
-    cart_state = st.session_state.cart
-    cart_items = cart_state.get("cart", [])
-    cart_total = cart_state.get("total", 0.0)
+        # P1-5: sync with the backend cart every load (per-session id), so a
+        # reload shows the real cart instead of an empty local one.
+        try:
+            st.session_state.cart = backend_get("/cart", headers=cart_headers())
+        except Exception:
+            pass  # backend down: keep the last known local cart state
+        cart_state = st.session_state.cart
+        cart_items = cart_state.get("cart", [])
+        cart_total = cart_state.get("total", 0.0)
 
-    if not cart_items:
-        st.markdown("<p class='empty-note'>Empty — spin a look you love, then shop it.</p>", unsafe_allow_html=True)
-    else:
-        for item in cart_items:
-            st.markdown(
-                f"""
-                <div class="cart-item">
-                  <span>💄 {item.get('look_name', 'Look')}</span>
-                  <span style="font-family:'IBM Plex Mono',monospace;font-weight:600;">${float(item.get('price', 19.99)):.2f}</span>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        st.markdown(f"<div class='cart-total'>Total: ${cart_total:.2f} (mock)</div>", unsafe_allow_html=True)
-        st.markdown("<div class='btn-checkout'>", unsafe_allow_html=True)
-        if st.button("Checkout (mock)", key="co_btn"):
-            st.session_state.cart = {"cart": [], "total": 0.0}
-            st.session_state.checkout_done = True
-            st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    if st.session_state.checkout_done:
-        st.markdown(
-            '<div class="checkout-msg">🎉 Mock checkout complete — no real payment, no real order.</div>',
-            unsafe_allow_html=True,
-        )
-
-    st.markdown("</section>", unsafe_allow_html=True)
-
-    # 2. Spin History Card
-    st.markdown(
-        """
-        <section class="card" aria-label="Spin history">
-          <h2>Spin History <span class="sub">session log</span></h2>
-        """,
-        unsafe_allow_html=True,
-    )
-    try:
-        past_looks = backend_get("/looks").get("looks", [])
-        if past_looks:
-            st.markdown("<ul class='hist'>", unsafe_allow_html=True)
-            for l in reversed(past_looks[-8:]):
-                mark = "👍" if l.get("liked") == 1 else ("👎" if l.get("liked") == 0 else "🎰")
-                live_text = "<span class='live'> · LIVE YouCam</span>" if not l.get("mock", True) else " · simulated"
-                jackpot_text = " · <b style='color:#ffd76a;'>JACKPOT</b>" if l.get("jackpot") else ""
+        if not cart_items:
+            st.markdown("<p class='empty-note'>Empty — spin a look you love, then shop it.</p>", unsafe_allow_html=True)
+        else:
+            for item in cart_items:
                 st.markdown(
                     f"""
-                    <li>
-                      <span class="mark">{mark}</span>
-                      <span>
-                        <b>{l.get('look_name', 'Look')}</b>
-                        <span class="meta">{l.get('family', '')} · {l.get('texture', '')}{live_text}{jackpot_text}</span>
-                      </span>
-                    </li>
+                    <div class="cart-item">
+                      <span>💄 {item.get('look_name', 'Look')}</span>
+                      <span style="font-family:'IBM Plex Mono',monospace;font-weight:600;">${float(item.get('price', 19.99)):.2f}</span>
+                    </div>
                     """,
                     unsafe_allow_html=True,
                 )
-            st.markdown("</ul>", unsafe_allow_html=True)
-        else:
-            st.markdown("<p class='empty-note'>No spins yet — press SPIN to begin.</p>", unsafe_allow_html=True)
-    except Exception:
-        st.markdown("<p class='empty-note'>Log starts after your first spin.</p>", unsafe_allow_html=True)
+            st.markdown(f"<div class='cart-total'>Total: ${cart_total:.2f} (mock)</div>", unsafe_allow_html=True)
+            st.markdown("<div class='btn-checkout'>", unsafe_allow_html=True)
+            if st.button("Checkout (mock)", key="co_btn"):
+                # P1-5 + P2-12: clear the BACKEND cart too (old code only
+                # cleared local state, so items resurrected on next Shop),
+                # and clear the stale "added to cart" feedback message.
+                try:
+                    httpx.post(BACKEND + "/cart/clear", headers=cart_headers(), timeout=15).raise_for_status()
+                    st.session_state.cart = {"cart": [], "total": 0.0}
+                    st.session_state.feedback = ""
+                    st.session_state.checkout_done = True
+                except Exception as e:
+                    st.session_state.feedback = f"Checkout failed: {str(e)[:80]}"
+                st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
 
-    st.markdown("</section>", unsafe_allow_html=True)
+        if st.session_state.checkout_done:
+            st.markdown(
+                '<div class="checkout-msg">🎉 Mock checkout complete — no real payment, no real order.</div>',
+                unsafe_allow_html=True,
+            )
+
+
+    # (P1-1: native bordered container — see CSS rule)
+    with st.container(border=True):
+        st.markdown("""<h2>Spin History <span class="sub">latest spins (all sessions on this backend)</span></h2>""", unsafe_allow_html=True)
+        try:
+            past_looks = backend_get("/looks").get("looks", [])
+            if past_looks:
+                st.markdown("<ul class='hist'>", unsafe_allow_html=True)
+                # P1-4: /looks returns id DESC (newest first), so the 8
+                # NEWEST are past_looks[:8] in order — the old
+                # reversed(past_looks[-8:]) showed the 8 OLDEST, oldest-first.
+                # P2-4: unswiped looks get a neutral mark; jackpots keep
+                # their JACKPOT tag (jackpot_text below) instead of the mark.
+                for l in past_looks[:8]:
+                    mark = "👍" if l.get("liked") == 1 else ("👎" if l.get("liked") == 0 else "○")
+                    live_text = "<span class='live'> · LIVE YouCam</span>" if not l.get("mock", True) else " · simulated"
+                    jackpot_text = " · <b style='color:#ffd76a;'>JACKPOT</b>" if l.get("jackpot") else ""
+                    st.markdown(
+                        f"""
+                        <li>
+                          <span class="mark">{mark}</span>
+                          <span>
+                            <b>{l.get('look_name', 'Look')}</b>
+                            <span class="meta">{l.get('family', '')} · {l.get('texture', '')}{live_text}{jackpot_text}</span>
+                          </span>
+                        </li>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+                st.markdown("</ul>", unsafe_allow_html=True)
+            else:
+                st.markdown("<p class='empty-note'>No spins yet — press SPIN to begin.</p>", unsafe_allow_html=True)
+        except Exception:
+            st.markdown("<p class='empty-note'>Log starts after your first spin.</p>", unsafe_allow_html=True)
+
 
 
 # ================================================================
@@ -1397,19 +1600,13 @@ with col_side:
 col_dna, col_hood = st.columns([1, 1], gap="medium")
 
 with col_dna:
-    st.markdown(
-        """
-        <section class="card">
-          <h2>🧬 Style DNA <span class="sub">what the machine has learned from your swipes</span></h2>
-        """,
-        unsafe_allow_html=True,
-    )
-    try:
-        t_data = backend_get("/taste")
-        st.markdown(style_dna_html(t_data.get("taste", []), t_data.get("style_iq")), unsafe_allow_html=True)
-    except Exception:
-        st.markdown("<p class='empty-note'>Style DNA starts recording once you vote 👍 or 👎 on looks.</p>", unsafe_allow_html=True)
-    st.markdown("</section>", unsafe_allow_html=True)
+    with st.container(border=True):
+        st.markdown("""<h2>🧬 Style DNA <span class="sub">what the machine has learned from your swipes</span></h2>""", unsafe_allow_html=True)
+        try:
+            t_data = backend_get("/taste")
+            st.markdown(style_dna_html(t_data.get("taste", []), t_data.get("style_iq")), unsafe_allow_html=True)
+        except Exception:
+            st.markdown("<p class='empty-note'>Style DNA starts recording once you vote 👍 or 👎 on looks.</p>", unsafe_allow_html=True)
 
 with col_hood:
     st.markdown(
@@ -1429,8 +1626,9 @@ with col_hood:
               <tr><td>SD Skin Analysis</td><td class="num">9 / spin</td></tr>
               <tr><td>Makeup VTO render</td><td class="num">1 / spin</td></tr>
               <tr><td>Failed task</td><td class="num">refunded</td></tr>
-              <tr><td><b>One full live spin</b></td><td class="num"><b>10</b></td></tr>
-              <tr><td>Account balance at last check</td><td class="num">443</td></tr>
+              <tr><td><b>One full live spin (non-jackpot)</b></td><td class="num"><b>10</b></td></tr>
+              <tr><td>Jackpot live spin (Look VTO template)</td><td class="num">9 + Look VTO (price to verify)</td></tr>
+              <tr><td>Account balance (approx., at last check)</td><td class="num">≈433</td></tr>
             </tbody>
           </table>
           <div class="stack">
@@ -1442,11 +1640,17 @@ with col_hood:
     )
 
 # ---------------------------------------------------------------- footer
+# P2-3: in simulated mode the footer must not claim YouCam-powered renders.
+footer_renders = (
+    "Renders powered by <b>YouCam Skin AI &amp; Makeup VTO</b>."
+    if not _chip_simulated
+    else "Simulated preview — no live YouCam renders in this mode."
+)
 st.markdown(
-    """
+    f"""
     <div class="app-footer">
       <span>Look Roulette — built for the <b>YouCam API Skin AI &amp; eCommerce VTO Hackathon</b> (Perfect Corp).</span>
-      <span>Renders powered by <b>YouCam Skin AI &amp; Makeup VTO</b>.</span>
+      <span>{footer_renders}</span>
     </div>
     """,
     unsafe_allow_html=True,

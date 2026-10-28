@@ -82,12 +82,29 @@ def get_spin(spin_id):
 
 
 def set_swipe(spin_id, liked):
-    """Record a like/dislike; updates the taste profile for that family+texture."""
+    """Record a like/dislike; updates the taste profile for that family+texture.
+
+    P1-8 idempotency: returns (found, changed).
+    - Voting the same way twice on the same look is a no-op (no double count).
+    - Switching LOVE -> NEXT (or back) moves the vote: the old counter is
+      decremented (floored at 0) and the new one incremented.
+    """
     spin = get_spin(spin_id)
     if not spin:
-        return False
+        return (False, False)
+    new_val = 1 if liked else 0
+    prev = spin["liked"]
+    if prev == new_val:
+        return (True, False)
     conn = _connect()
-    conn.execute("UPDATE spins SET liked = ? WHERE id = ?", (1 if liked else 0, spin_id))
+    if prev is not None:
+        # Remove the previous vote from the taste profile first.
+        col = "likes" if prev == 1 else "dislikes"
+        conn.execute(
+            f"UPDATE taste SET {col} = max(0, {col} - 1) WHERE family = ? AND texture = ?",
+            (spin["family"], spin["texture"]),
+        )
+    conn.execute("UPDATE spins SET liked = ? WHERE id = ?", (new_val, spin_id))
     conn.execute(
         """INSERT INTO taste (family, texture, likes, dislikes)
            VALUES (?, ?, ?, ?)
@@ -98,7 +115,7 @@ def set_swipe(spin_id, liked):
     )
     conn.commit()
     conn.close()
-    return True
+    return (True, True)
 
 
 def get_taste_weights():

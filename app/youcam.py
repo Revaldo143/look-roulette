@@ -17,7 +17,7 @@ import io
 import os
 import random
 import sys
-import urllib.request
+import urllib.parse
 
 from PIL import Image, ImageEnhance
 
@@ -33,8 +33,47 @@ except ImportError:
     dynamic_credential_entry = None  # type: ignore[assignment]
     _VAULT_AVAILABLE = False
 
-HOST = "https://yce-api-01.makeupar.com"
+# P2-10: the unused HOST constant and unused urllib.request import were
+# removed (the vault helper owns the API host; downloads use curl).
 VAULT_CONNECTION = "custom.youcam"
+
+# P2-14: result-image downloads are allowlisted to the vendor's hosts.
+# The list is extendable via env without a code change if YouCam serves a
+# result from another vendor host (e.g. a new CDN suffix):
+#   LOOKROULETTE_RESULT_HOSTS="cdn.example.com,files.vendor.com"
+_RESULT_HOST_SUFFIXES = tuple(
+    h.strip().lower()
+    for h in os.environ.get(
+        "LOOKROULETTE_RESULT_HOSTS",
+        ".amazonaws.com,.makeupar.com,.perfectcorp.com",
+    ).split(",")
+    if h.strip()
+)
+
+
+def _check_result_url(url: str) -> None:
+    """P2-14: refuse result URLs that are not https on a vendor host.
+
+    Blocks SSRF-style targets outright: non-https schemes, bare IP hosts,
+    and localhost/private names. A vendor host outside the suffix list is
+    also refused (extend LOOKROULETTE_RESULT_HOSTS if YouCam legitimately
+    serves from a new host) — flagged in FIXES.md as the conservative choice.
+    """
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme != "https":
+        raise RuntimeError("refusing result URL with non-https scheme")
+    host = (parsed.hostname or "").lower()
+    if not host or host in ("localhost",) or host.endswith((".local", ".internal")):
+        raise RuntimeError("refusing result URL with non-public host")
+    import ipaddress
+
+    try:
+        ipaddress.ip_address(host)
+        raise RuntimeError("refusing result URL with IP-literal host")
+    except ValueError:
+        pass  # not an IP literal: a DNS name, as expected
+    if not any(host == s.lstrip(".") or host.endswith(s) for s in _RESULT_HOST_SUFFIXES):
+        raise RuntimeError("refusing result URL from unexpected host: %s" % host)
 HELPER_PATH = os.path.expanduser(
     "~/workspace/custom-connectors/custom.youcam/bin/youcam-api.py"
 )
@@ -51,7 +90,11 @@ def _vault_headers() -> dict:
 
 def _load_helper():
     """Import the vault connector helper module (urllib-based transport)."""
+    # P2-10: fail loudly on a missing helper instead of relying on the
+    # caller's blanket except to turn an AttributeError into a mock fallback.
     spec = importlib.util.spec_from_file_location("youcam_api_helper", HELPER_PATH)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("YouCam helper not found at %s" % HELPER_PATH)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -169,6 +212,9 @@ class LiveYouCamProvider(YouCamProvider):
         this VM's egress proxy on S3 accelerate URLs, while curl completes.
         """
 
+        # P2-14: validate the result host before any download is attempted.
+        _check_result_url(url)
+
         def _get():
             import subprocess
 
@@ -249,12 +295,32 @@ class LiveYouCamProvider(YouCamProvider):
         return ""
 
     def _parse_undertone(self, payload: dict) -> str:
-        text = str(payload).lower()
-        if "warm" in text:
-            return "warm"
-        if "cool" in text:
-            return "cool"
-        return "neutral"
+        # P2-11: parse a real undertone field instead of substring-grepping
+        # the whole payload dump (which misfires on "warm" inside URLs or
+        # alongside "cool" in unrelated text). Falls back to neutral when
+        # no structured undertone field exists — never a guess from prose.
+        def _walk(node, depth=0):
+            if depth > 4:
+                return None
+            if isinstance(node, dict):
+                for key, val in node.items():
+                    if key.lower() in ("undertone", "skin_undertone", "skin_tone"):
+                        if isinstance(val, str):
+                            v = val.strip().lower()
+                            for want in ("warm", "cool", "neutral"):
+                                if want in v:
+                                    return want
+                    found = _walk(val, depth + 1)
+                    if found:
+                        return found
+            elif isinstance(node, list):
+                for item in node:
+                    found = _walk(item, depth + 1)
+                    if found:
+                        return found
+            return None
+
+        return _walk(payload) or "neutral"
 
     async def analyze_skin(self, image_bytes: bytes) -> dict:
         src = await self._upload(image_bytes)

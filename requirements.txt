@@ -1,6 +1,10 @@
-fastapi
-uvicorn
-streamlit
-pillow
-python-multipart
-httpx
+# P2-8: pinned to the versions verified in the VM venv that served the
+# app at HTTP 200 (lookroulette/.venv: streamlit 1.66.0, fastapi 0.143.3,
+# uvicorn 0.54.0, pillow 12.3.0, python-multipart 0.0.32, httpx 0.28.1).
+# Pinned with == so a fresh install cannot pull breaking major versions.
+fastapi==0.143.3
+uvicorn==0.54.0
+streamlit==1.66.0
+pillow==12.3.0
+python-multipart==0.0.32
+httpx==0.28.1

@@ -1,6 +1,20 @@
-"""One-shot live /spin test for Look Roulette. Saves before/after PNGs."""
-import json, base64, io, time, random, uuid, urllib.request
+"""One-shot live /spin test for Look Roulette. Saves before/after PNGs.
+
+NOTE: running this against a live backend spends a real ~10-unit spin by
+design ("live_spin_test" is its name) — never run it casually.
+"""
+import json, base64, io, time, random, uuid, urllib.request, os, sys
 from PIL import Image, ImageDraw
+
+# P2-9: the old script hardcoded /home/hatch/workspace/lookroulette/shots/,
+# which does not exist on the user's laptop (crash on open()). The output
+# dir is now script-relative, overridable via LOOKROULETTE_SHOTS, and
+# created if missing.
+OUT_DIR = os.environ.get(
+    "LOOKROULETTE_SHOTS",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "shots"),
+)
+os.makedirs(OUT_DIR, exist_ok=True)
 
 def demo_portrait() -> bytes:
     rng = random.Random("lookroulette-demo")
@@ -27,7 +41,6 @@ def demo_portrait() -> bytes:
     return buf.getvalue()
 
 portrait = demo_portrait()
-open("/home/hatch/workspace/lookroulette/shots/spin_before.png", "wb").write(portrait)
 print("portrait bytes:", len(portrait), flush=True)
 
 boundary = uuid.uuid4().hex
@@ -38,13 +51,27 @@ body = (
 req = urllib.request.Request("http://127.0.0.1:8000/spin", data=body, method="POST")
 req.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
 t0 = time.time()
-with urllib.request.urlopen(req, timeout=600) as r:
-    result = json.loads(r.read().decode())
+try:
+    with urllib.request.urlopen(req, timeout=600) as r:
+        result = json.loads(r.read().decode())
+except Exception as e:
+    # P2-9: a failed spin no longer leaves a misleading "before" file
+    # behind, and no KeyError is raised on an error payload.
+    print("spin request failed:", e, flush=True)
+    sys.exit(1)
 print(f"spin done in {time.time()-t0:.0f}s", flush=True)
 print("look:", result.get("look_name"), "| family:", result.get("family"),
       "| texture:", result.get("texture"), "| undertone:", result.get("undertone"),
       "| jackpot:", result.get("jackpot"), "| simulated:", result.get("simulated"), flush=True)
 print("palette:", json.dumps(result.get("palette"))[:200], flush=True)
+if not result.get("image"):
+    # Error payload (e.g. {"detail": ...}) instead of an image: report it
+    # and exit non-zero rather than raising KeyError.
+    print("spin returned no image:", json.dumps(result)[:300], flush=True)
+    sys.exit(1)
+# P2-9: both files are written only AFTER a successful spin.
+open(os.path.join(OUT_DIR, "spin_before.png"), "wb").write(portrait)
 img_b64 = result["image"].split(",", 1)[1]
-open("/home/hatch/workspace/lookroulette/shots/spin_after.png", "wb").write(base64.b64decode(img_b64))
-print("saved shots/spin_before.png and shots/spin_after.png", flush=True)
+open(os.path.join(OUT_DIR, "spin_after.png"), "wb").write(base64.b64decode(img_b64))
+print("saved:", os.path.join(OUT_DIR, "spin_before.png"), "and",
+      os.path.join(OUT_DIR, "spin_after.png"), flush=True)
